@@ -1,6 +1,6 @@
 // MARK: - Sajda/UpdateChecker.swift
 //
-// In-app updates through Sparkle 2.
+// In-app updates through Sparkle 2 (disabled in the independent Sunrise fork).
 //
 // Sparkle owns the whole cycle — feed fetch, EdDSA signature check, download,
 // install, relaunch — so this class is only the thin SwiftUI-facing shell
@@ -9,9 +9,9 @@
 // delegate callbacks into the `State` the panel's footer badge and the About
 // page already render.
 //
-// Configuration lives in `Sajda/Info.plist` (SUFeedURL + SUPublicEDKey, and
-// SUEnableInstallerLauncherService for the sandbox), so nothing about the feed
-// or the signing key is hard-coded here.
+// The upstream controller is retained for a future independent signed feed.
+// The fork removes upstream feed/key configuration from Info.plist and guards
+// every entry point before the lazy controller can be instantiated.
 
 import Foundation
 import Combine
@@ -42,13 +42,16 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// Stored here so both Settings and About bind to the same key.
     static let autoCheckKey = "autoCheckForUpdates"
 
+    /// This fork has no independent signed feed yet. Never instantiate Sparkle.
+    static let automaticUpdatesAvailable = false
+
     var autoCheckEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.autoCheckKey)
+        Self.automaticUpdatesAvailable && UserDefaults.standard.bool(forKey: Self.autoCheckKey)
     }
 
     /// Still the human-facing releases page: the About copy links here when a
     /// user would rather read the notes than let Sparkle install the update.
-    static let releasesPageURL = URL(string: "https://github.com/ikoshura/Sajda/releases")!
+    static let releasesPageURL = URL(string: "https://github.com/jawad-mohammed35/Sajda/releases")!
 
     /// True only for the span of a user-initiated check, so "no update found"
     /// can be reported as *up to date* from the About page while a background
@@ -81,6 +84,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// behaviour the hand-rolled version was approximating. Called on launch
     /// and whenever the Settings/Onboarding switch flips.
     func checkIfDue() {
+        guard Self.automaticUpdatesAvailable else { return }
         let enabled = autoCheckEnabled
         updater.automaticallyChecksForUpdates = enabled
         guard enabled else { return }
@@ -91,6 +95,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// background path this always surfaces UI — Sparkle's window either
     /// offers the update or reports that the app is current.
     func checkManually() {
+        guard Self.automaticUpdatesAvailable else {
+            openReleasePage()
+            return
+        }
         isManualCheckInFlight = true
         state = .checking
         updater.checkForUpdates()

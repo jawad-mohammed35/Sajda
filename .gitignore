@@ -71,3 +71,6 @@ diff.txt
 *.profraw
 *.swp
 *~
+
+# Pin application dependencies for reproducible fork releases.
+!Sajda.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

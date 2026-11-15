@@ -30,6 +30,12 @@ DOWNLOAD_PREFIX="https://github.com/${REPO_SLUG}/releases/download/${TAG}/"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# This retained pipeline belongs to upstream; fork releases use their own flow.
+case "$(git remote get-url --push origin)" in
+  https://github.com/ikoshura/Sajda.git|git@github.com:ikoshura/Sajda.git) ;;
+  *) echo "error: upstream signing/appcast pipeline disabled for forks; see docs/RELEASE.md" >&2; exit 1 ;;
+esac
+
 BUILD_DIR="build"
 ARCHIVE_PATH="${BUILD_DIR}/Sajda.xcarchive"
 EXPORT_DIR="${BUILD_DIR}/export"

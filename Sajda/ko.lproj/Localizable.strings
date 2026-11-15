@@ -206,3 +206,6 @@
 "How to get the file?" = "파일은 어떻게 받나요?";
 "Open the timetable helper in your browser" = "브라우저에서 시간표 도우미 열기";
 "Sajda" = "Sajda";
+
+/* Independent fork update link */
+"Fork Releases" = "포크 릴리스";

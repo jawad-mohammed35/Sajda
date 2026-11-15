@@ -196,6 +196,7 @@ struct OnboardingView: View {
                     Toggle("Show this window on launch", isOn: $showOnboardingAtLaunch)
                         .toggleStyle(.checkbox)
                     Toggle("Check for Updates Automatically", isOn: $autoCheckForUpdates)
+                        .disabled(!UpdateChecker.automaticUpdatesAvailable)
                         .toggleStyle(.checkbox)
                         .onChange(of: autoCheckForUpdates) { enabled in
                             if enabled { UpdateChecker.shared.checkIfDue() }

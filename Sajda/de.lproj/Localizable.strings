@@ -206,3 +206,6 @@
 "How to get the file?" = "Wie komme ich an die Datei?";
 "Open the timetable helper in your browser" = "Gebetsplan-Assistent im Browser öffnen";
 "Sajda" = "Sajda";
+
+/* Independent fork update link */
+"Fork Releases" = "Fork-Versionen";

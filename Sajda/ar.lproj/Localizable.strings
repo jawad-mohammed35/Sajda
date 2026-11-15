@@ -206,3 +206,6 @@
 "How to get the file?" = "كيف أحصل على الملف؟";
 "Open the timetable helper in your browser" = "افتح مساعد المواقيت في المتصفح";
 "Sajda" = "سجدة";
+
+/* Independent fork update link */
+"Fork Releases" = "إصدارات النسخة المعدّلة";

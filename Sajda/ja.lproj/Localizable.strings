@@ -206,3 +206,6 @@
 "How to get the file?" = "ファイルの入手方法は？";
 "Open the timetable helper in your browser" = "ブラウザで時刻表ヘルパーを開く";
 "Sajda" = "Sajda";
+
+/* Independent fork update link */
+"Fork Releases" = "フォークのリリース";

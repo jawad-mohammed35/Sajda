@@ -306,6 +306,7 @@ struct SettingsView: View {
             // The "check now" side effect fires from this one live copy of the
             // row — see `.onChange(of: autoCheckForUpdates)` on the content.
             StyledToggle(label: "Check for Updates Automatically", isOn: $autoCheckForUpdates)
+                .disabled(!UpdateChecker.automaticUpdatesAvailable)
             HStack {
                 Text("Animation Style").scaledFont(.subheadline)
                 Spacer()

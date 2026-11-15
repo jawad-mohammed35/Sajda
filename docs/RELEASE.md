@@ -1,5 +1,17 @@
 # Sajda Release Guide
 
+## Independent Sunrise fork
+
+The upstream signed pipeline below is retained as reference. **Do not run it for this fork:** it targets the original team, repository and Sparkle feed. `scripts/release.sh` refuses to run unless origin is the upstream repository.
+
+This fork has its own bundle identifier, no configured Sparkle feed or public key, and automatic updates disabled. Manual checks open the fork releases page. Never use upstream signing credentials. The existing marketing version is retained with a new build number; fork prerelease tags use `v4.6.5-sunrise.1` and must be checked for conflicts before publishing.
+
+For an unsigned universal testing package, run `bash scripts/release-unsigned.sh`. It builds Release for arm64 and x86_64 without Developer ID signing, packages the app and MIT license in a DMG, verifies the image, and prints its SHA-256. The artifact is explicitly unsigned and not notarized; Gatekeeper may block downloaded copies. Do not disable Gatekeeper or remove quarantine. Building from source is the supported alternative until independent Developer ID signing and notarization are configured. Any linker-generated ad-hoc signatures do not establish developer identity or notarization.
+
+Only publish after Debug/Release builds, unit tests and launch checks succeed. Report unexecuted UI or hardware checks explicitly. Do not regenerate or publish the upstream appcast.
+
+## Upstream release process
+
 Sajda ships as a **Developer ID signed, Apple-notarized DMG**, and the same build feeds Sparkle's appcast so existing installs update themselves.
 
 The whole pipeline is automated in [`scripts/release.sh`](../scripts/release.sh). The sections below document what that script does, for when it needs to change or be run step by step by hand.

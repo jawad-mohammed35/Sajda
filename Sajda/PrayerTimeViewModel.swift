@@ -29,6 +29,20 @@ struct FlexibleDouble: Codable, Equatable, Hashable {
 class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var menuTitle: NSAttributedString = NSAttributedString(string: NSLocalizedString("Sajda", comment: ""))
     @Published var todayTimes: [String: Date] = [:]
+    /// Informational only: deliberately outside the prayer dictionary used by
+    /// countdowns, notification scheduling and adhan triggers.
+    @Published private(set) var sunriseTime: Date?
+
+    var timetableDisplayOrder: [String] {
+        let order = showSunnahPrayers
+            ? ["Tahajud", "Fajr", "Sunrise", "Dhuha", "Dhuhr", "Asr", "Maghrib", "Isha"]
+            : ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"]
+        return order.filter { timetableTime(for: $0) != nil }
+    }
+
+    func timetableTime(for name: String) -> Date? {
+        name == "Sunrise" ? sunriseTime : todayTimes[name]
+    }
     @Published var nextPrayerName: String = ""
     @Published var countdown: String = "--:--"
     /// Seconds-precision countdown shown in the big panel header.
@@ -382,6 +396,10 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
         refreshGeocodeConfig()
         setupAdhanObservers()
         setupLanguageRefresh()
+        NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updatePrayerTimes() }
+            .store(in: &cancellables)
         refreshNotificationAuthorizationStatus()
     }
 
@@ -747,35 +765,38 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
     }
     private func updateAndDisplayTimes() { updatePrayerTimes() }
 
-    func updatePrayerTimes() {
+    func updatePrayerTimes(on date: Date = Date()) {
         // Clear the played-once dedup when the day changes — tomorrow's
         // prayers are different occurrences. Moved instants *within* the day
         // re-arm individually in `scheduleAdhanTriggers`, so a recalculation
         // never blanket-resets here: that would reopen the window where the
         // countdown poll and the notification delegates double-play.
-        if let lastDate = lastCalculationDate,
-           !Calendar.current.isDate(lastDate, inSameDayAs: Date()) {
+        if needsPrayerScheduleRefresh(at: date) {
             AdhanAudioPlayer.shared.resetPlayedPrayers()
         }
-        lastCalculationDate = Date()
+        lastCalculationDate = date
 
         // Custom timetable: runs fully offline from the imported CSV and needs
         // no coordinates. Falls through to the calculated path when the
         // timetable doesn't cover today (e.g. Dec 31 of a one-year file).
         syncTimetableCache()
-        if useCustomTimetable, let timetable = resolvedTimetable() {
-            if let day = CustomTimetableStore.times(for: Date(), in: timetable.calendar) {
-                applyTimetableDay(day, timetable: timetable)
+        if useCustomTimetable {
+            if let timetable = resolvedTimetable(),
+               let day = CustomTimetableStore.times(for: date, in: timetable.calendar) {
+                applyTimetableDay(day, timetable: timetable, on: date)
                 return
             }
-            logger.warning("Custom timetable does not cover today; using calculated times.")
+            // Keep the existing five-prayer fallback, but never invent a
+            // Sunrise entry that the selected timetable does not publish.
+            sunriseTime = nil
+            logger.warning("Custom timetable does not cover today; using calculated prayer times without Sunrise.")
         }
 
         guard let coord = currentCoordinates else { return }
 
         var locationCalendar = Calendar(identifier: .gregorian); locationCalendar.timeZone = self.locationTimeZone
-        let todayInLocation = locationCalendar.dateComponents([.year, .month, .day], from: Date())
-        let tomorrowInLocation = locationCalendar.date(byAdding: .day, value: 1, to: Date())!
+        let todayInLocation = locationCalendar.dateComponents([.year, .month, .day], from: date)
+        let tomorrowInLocation = locationCalendar.date(byAdding: .day, value: 1, to: date)!
         let tomorrowDC = locationCalendar.dateComponents([.year, .month, .day], from: tomorrowInLocation)
         var params = method.params; params.madhab = self.useHanafiMadhhab ? .hanafi : .shafi; params.highLatitudeRule = highLatitudeRuleSetting.adhanRule
         guard let prayersToday = PrayerTimes(coordinates: Coordinates(latitude: coord.latitude, longitude: coord.longitude), date: todayInLocation, calculationParameters: params),
@@ -796,7 +817,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
             // put the entry a full day ahead in that window, so the sorted
             // next-prayer search saw it too far away and fell through to
             // highlighting Fajr instead of the Tahajud hours away.
-            let now = Date()
+            let now = date
             let nightStart: Date
             let nightEnd: Date
             if now < correctedFajr,
@@ -820,8 +841,10 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
 
         let correctedFajrTomorrow = prayersTomorrow.fajr.addingTimeInterval(fajrCorrection * 60)
 
+        let calculatedSunrise = useCustomTimetable ? nil : prayersToday.sunrise
         DispatchQueue.main.async {
             self.todayTimes = Dictionary(uniqueKeysWithValues: allPrayerTimes.map { ($0.name, $0.time) })
+            self.sunriseTime = calculatedSunrise
             self.tomorrowFajrTime = correctedFajrTomorrow
             self.updateNextPrayer()
             self.updateNotifications()
@@ -830,12 +853,13 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
 
     /// Builds today's times from a custom timetable day
     /// `[fajr, sunrise, dhuhr, asr, maghrib, isha]` ("HH:MM", Mac timezone).
-    private func applyTimetableDay(_ day: [String], timetable: CustomTimetable) {
+    private func applyTimetableDay(_ day: [String], timetable: CustomTimetable, on date: Date) {
         guard day.count >= 6,
-              let rawFajr = dateFromHM(day[0]), let rawDhuhr = dateFromHM(day[2]),
-              let rawAsr = dateFromHM(day[3]), let rawMaghrib = dateFromHM(day[4]),
-              let rawIsha = dateFromHM(day[5]) else {
-            logger.warning("Custom timetable day entry incomplete; keeping previous times.")
+              let rawFajr = dateFromHM(day[0], on: date), let rawDhuhr = dateFromHM(day[2], on: date),
+              let rawAsr = dateFromHM(day[3], on: date), let rawMaghrib = dateFromHM(day[4], on: date),
+              let rawIsha = dateFromHM(day[5], on: date) else {
+            logger.warning("Custom timetable day entry incomplete; keeping previous prayer times without Sunrise.")
+            sunriseTime = nil
             return
         }
 
@@ -855,7 +879,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
         // Tomorrow's Fajr for the after-Isha highlight. At the year's edge the
         // timetable may not cover tomorrow, so fall back to today's Fajr clock
         // time on tomorrow's date.
-        let tomorrow = Date().addingTimeInterval(86_400)
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: date)!
         let fajrTomorrow = CustomTimetableStore.times(for: tomorrow, in: timetable.calendar)
             .flatMap { dateFromHM($0[0], on: tomorrow) }
             ?? dateFromHM(day[0], on: tomorrow)
@@ -867,11 +891,11 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
         // carries an adhan offset.
         var extras: [(name: String, time: Date)] = []
         if showSunnahPrayers {
-            let now = Date()
+            let now = date
             let nightStart: Date
             let nightEnd: Date
             if now < fajr {
-                let yesterday = now.addingTimeInterval(-86_400)
+                let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
                 if let yesterdayDay = CustomTimetableStore.times(for: yesterday, in: timetable.calendar),
                    yesterdayDay.count >= 6,
                    let yesterdayIsha = dateFromHM(yesterdayDay[5], on: yesterday) {
@@ -889,7 +913,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
             if nightDuration > 0 {
                 extras.append(("Tahajud", nightStart.addingTimeInterval(nightDuration * (2 / 3.0))))
             }
-            if let sunrise = dateFromHM(day[1]) {
+            if let sunrise = dateFromHM(day[1], on: date) {
                 extras.append(("Dhuha", sunrise.addingTimeInterval(20 * 60)))
             }
         }
@@ -901,6 +925,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
         entries.append(contentsOf: extras)
         DispatchQueue.main.async {
             self.todayTimes = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0.time) })
+            self.sunriseTime = self.dateFromHM(day[1], on: date)
             self.tomorrowFajrTime = fajrTomorrow
             self.updateNextPrayer()
             self.updateNotifications()
@@ -909,6 +934,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
 
     /// Parses "HH:MM" into a Date on the given day (Mac timezone).
     private func dateFromHM(_ hm: String, on day: Date = Date()) -> Date? {
+        guard let hm = CustomTimetableStore.cleanHM(hm) else { return nil }
         let parts = hm.split(separator: ":")
         guard parts.count >= 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else { return nil }
         var cal = Calendar(identifier: .gregorian)
@@ -2072,6 +2098,7 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
     /// the prayer is muted from the home panel, or "None" is chosen in
     /// Settings. The notification banner still shows either way.
     func adhanSound(for prayerName: String) -> (adhanType: AdhanType, customFilePath: String)? {
+        guard prayerName != "Sunrise" else { return nil }
         let config = soundConfig(for: prayerName)
         guard !config.muted, config.adhanType != .none else { return nil }
         return (config.adhanType, config.customFilePath)
@@ -2146,13 +2173,21 @@ class PrayerTimeViewModel: NSObject, ObservableObject, CLLocationManagerDelegate
     var forwardChevron: String { isRTL ? "chevron.left" : "chevron.right" }
     var forwardArrow: String { isRTL ? "arrow.left" : "arrow.right" }
 
+    /// Coordinate schedules roll over at the selected location's midnight;
+    /// imported wall-clock schedules use the Mac's date, as their parser does.
+    func needsPrayerScheduleRefresh(at date: Date) -> Bool {
+        guard let lastDate = lastCalculationDate else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = displayTimeZone
+        return !calendar.isDate(lastDate, inSameDayAs: date)
+    }
+
     func startTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
 
-            if let lastDate = self.lastCalculationDate,
-               !Calendar.current.isDate(lastDate, inSameDayAs: Date()) {
+            if self.needsPrayerScheduleRefresh(at: Date()) {
                 self.updatePrayerTimes()
             } else {
                 self.updateCountdown()

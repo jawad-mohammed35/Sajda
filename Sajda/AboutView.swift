@@ -304,7 +304,7 @@ struct AboutView: View {
                 Button(action: { updater.checkManually() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.triangle.2.circlepath")
-                        Text("Check for Updates").scaledFont(.subheadline)
+                        Text(LocalizedStringKey(UpdateChecker.automaticUpdatesAvailable ? "Check for Updates" : "Fork Releases")).scaledFont(.subheadline)
                     }
                     .padding(.vertical, 5).padding(.horizontal, 8)
                     // Padding, hover pill and hit shape all *inside* the label,

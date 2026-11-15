@@ -90,6 +90,7 @@ struct SajdaControlCenterMenu: View {
             "\(vm.isPrayerDataAvailable)",
             "\(vm.showCountdownHeader)",
             "\(vm.showSunnahPrayers)",
+            "\(vm.sunriseTime != nil)",
             "\(vm.iqamaDelayPosition)",
             // The gap column only exists under a mosque timetable, so the mode
             // is what adds or removes that width — switching sources with the

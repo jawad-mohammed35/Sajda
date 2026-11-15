@@ -651,12 +651,6 @@ struct PrayerListView: View {
     // Drives both the row height and the time-column width, so the time always
     // fits on one line and the rows always grow with the text.
     @Environment(\.panelFontScale) private var fontScale
-    private var prayerOrder: [String] {
-        let defaultOrder = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
-        let sunnahOrder = ["Tahajud", "Fajr", "Dhuha", "Dhuhr", "Asr", "Maghrib", "Isha"]
-        let baseOrder = vm.showSunnahPrayers ? sunnahOrder : defaultOrder
-        return baseOrder.filter { vm.todayTimes.keys.contains($0) }
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // One width for the whole column — the mark's slot included while
@@ -673,7 +667,7 @@ struct PrayerListView: View {
                 reservingSunnahMark: vm.showSunnahPrayers,
                 formatter: vm.dateFormatter
             )
-            ForEach(prayerOrder, id: \.self) { prayerName in
+            ForEach(vm.timetableDisplayOrder, id: \.self) { prayerName in
                 PrayerRow(
                     prayerName: prayerName,
                     timeColumnWidth: timeColumnWidth
@@ -988,7 +982,7 @@ private struct PrayerRow: View {
     }
 
     var body: some View {
-        if let prayerTime = vm.todayTimes[prayerName] {
+        if let prayerTime = vm.timetableTime(for: prayerName) {
             let isNextPrayer = prayerName == vm.nextPrayerName
             // After Isha the highlighted Fajr is tomorrow's occurrence;
             // format the same Date the menu bar uses so the panel and
@@ -1209,7 +1203,7 @@ private struct PrayerRow: View {
         // While an adhan sounds, the stop control is the "Dismiss" link beside
         // the prayer name (see `dismissAdhanLink`) — this cell keeps showing
         // the mute toggle instead of being taken over by a stop button.
-        if vm.muteIconStyle == .none {
+        if prayerName == "Sunrise" || vm.muteIconStyle == .none {
             // "None" means no control, not an invisible one. The cell is still
             // reserved so the time column doesn't shift when the user switches
             // styles, but nothing is clickable, focusable, hoverable or
