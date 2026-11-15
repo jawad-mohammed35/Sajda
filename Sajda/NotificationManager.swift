@@ -39,7 +39,7 @@ struct NotificationManager {
                                    prayerOrder: [String],
                                    now: Date = Date()) -> [String: Date] {
         var pending: [String: Date] = [:]
-        for prayerName in prayerOrder {
+        for prayerName in prayerOrder where prayerName != "Sunrise" {
             guard let prayerTime = prayerTimes[prayerName], prayerTime > now else { continue }
             pending[prayerName] = prayerTime
         }

@@ -6,9 +6,17 @@ A prayer times app for macOS that lives in the menu bar.
 
 > The interface now uses Liquid Glass: a glass panel, a frosted interior, and native glass controls that fit in with the latest macOS.
 
-[![Latest Release](https://img.shields.io/github/v/release/ikoshura/Sajda)](https://github.com/ikoshura/Sajda/releases)
-[![macOS Sonoma 14.0+](https://img.shields.io/badge/macOS-Sonoma%2014.0%2B-blue)](https://github.com/ikoshura/Sajda/releases)
+[![Latest Release](https://img.shields.io/github/v/release/jawad-mohammed35/Sajda)](https://github.com/jawad-mohammed35/Sajda/releases)
+[![macOS Sonoma 14.0+](https://img.shields.io/badge/macOS-Sonoma%2014.0%2B-blue)](https://github.com/jawad-mohammed35/Sajda/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+## About This Fork
+
+This repository is a modified fork of [Sajda](https://github.com/ikoshura/Sajda), the open-source macOS prayer time application originally developed by ikoshura. All credit for the original application goes to its creator and contributors; this fork is independent and is not officially maintained or endorsed by them.
+
+The main modification is **Sunrise in the daily timetable**, between Fajr and Dhuhr. It uses Adhan's Sunrise for calculated schedules and the imported Sunrise/Shuruk value for custom PDF/CSV schedules. Missing or invalid imported Sunrise values are omitted, never estimated. If a custom file does not cover a date, the existing calculated fallback for the five prayers remains available, while Sunrise stays hidden. Sunrise is informational only: it has no adhan, notification, mute control, next-prayer highlight, or countdown.
+
+This fork uses a separate bundle identifier (`com.jawadmohammed35.SajdaSunrise`), so it has its own settings and notification permissions. Automatic updates are disabled until the fork has an independent signed feed. Manual update checks open this fork's releases page.
 
 ## Features
 
@@ -23,19 +31,25 @@ A prayer times app for macOS that lives in the menu bar.
 
 Requires macOS Sonoma 14.0 or later (Apple Silicon or Intel).
 
-### Homebrew
+### Fork testing builds
+
+Download a package from [this fork's releases](https://github.com/jawad-mohammed35/Sajda/releases). Check its release notes for the signing status. Unsigned testing builds are **not Developer ID signed or Apple notarized** and may be blocked by Gatekeeper when downloaded. Do not disable Gatekeeper or remove quarantine; build locally using the instructions below, or wait for a signed release if macOS refuses to open the download.
+
+The following Homebrew instructions install the original application, without this fork's Sunrise change.
+
+### Upstream Homebrew
 
 ```bash
 brew install --cask ikoshura/sajda/sajda
 ```
 
-### DMG
+### Upstream DMG
 
-Download the latest `.dmg` from the [Releases page](https://github.com/ikoshura/Sajda/releases), open it, and drag Sajda to your Applications folder.
+Download the original `.dmg` from the [upstream Releases page](https://github.com/ikoshura/Sajda/releases), open it, and drag Sajda to your Applications folder.
 
-### First launch
+### Upstream first launch
 
-Sajda is signed with a Developer ID certificate and notarized by Apple, so it opens normally — no Gatekeeper workaround, no quarantine removal. Quit Sajda and reopen it, and updates install themselves in the background (verified with an EdDSA signature before anything is replaced, via [Sparkle](https://sparkle-project.org)).
+The upstream application is signed with a Developer ID certificate and notarized by Apple, so it opens normally — no Gatekeeper workaround, no quarantine removal. Quit Sajda and reopen it, and updates install themselves in the background (verified with an EdDSA signature before anything is replaced, via [Sparkle](https://sparkle-project.org)).
 
 ## Build from source
 
@@ -53,7 +67,7 @@ xcodebuild \
 open build/DerivedData/Build/Products/Debug/Sajda.app
 ```
 
-For signing and notarization, see [docs/RELEASE.md](docs/RELEASE.md).
+For signing and notarization, see [docs/RELEASE.md](docs/RELEASE.md). Implementation details, validation results, limitations and modified files are recorded in [docs/SUNRISE_QA.md](docs/SUNRISE_QA.md).
 
 ## Contributing
 
@@ -85,7 +99,7 @@ Thanks also to [@iMacLion](https://github.com/iMacLion) for testing releases and
 - [Adhan](https://github.com/batoulapps/Adhan): prayer time calculation (MIT)
 - [ColorSelector](https://github.com/jaywcjlove/ColorSelector): highlight colour picker (MIT)
 - [FluidMenuBarExtra](https://github.com/lfroms/fluid-menu-bar-extra): resizing menu bar window (MIT, vendored in `Sajda/FluidMenuBar/`)
-- [MacControlCenterUI](https://github.com/orchetect/MacControlCenterUI): Control Center style menu and controls (MIT, vendored; pulls in [MenuBarExtraAccess](https://github.com/orchetect/MenuBarExtraAccess), also MIT)
+- [MacControlCenterUI](https://github.com/orchetect/MacControlCenterUI): Control Center style menu and controls (MIT; pulls in [MenuBarExtraAccess](https://github.com/orchetect/MenuBarExtraAccess), also MIT)
 - [NavigationStack](https://github.com/indieSoftware/NavigationStack): view navigation (MIT)
 - [Sparkle](https://sparkle-project.org): signed, notarized in-app updates (MIT)
 - Adhan audio: bundled recordings from [adhan.notifications](https://archive.org/details/adhan.notifications) and [adhan.recordings.from.doha.qatar](https://archive.org/details/adhan.recordings.from.doha.qatar), both Public Domain Mark 1.0

@@ -206,3 +206,6 @@
 "How to get the file?" = "¿Cómo consigo el archivo?";
 "Open the timetable helper in your browser" = "Abrir el asistente de horarios en el navegador";
 "Sajda" = "Sajda";
+
+/* Independent fork update link */
+"Fork Releases" = "Versiones de la bifurcación";

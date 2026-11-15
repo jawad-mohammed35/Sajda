@@ -10,6 +10,8 @@ import Combine
 import SwiftUI
 import AppKit
 import CoreText
+import Adhan
+import CoreLocation
 @testable import Sajda
 
 final class SajdaTests: XCTestCase {
@@ -34,6 +36,203 @@ final class SajdaTests: XCTestCase {
         // This is an example of a performance test case.
         self.measure {
             // Put the code you want to measure the time of here.
+        }
+    }
+
+    // MARK: - Informational Sunrise
+
+    @MainActor
+    private func settleSchedule() async {
+        // Calculation publishes on the main queue; wait for that publication.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    @MainActor
+    func testCalculatedSunriseAcrossLocationsDatesAndDST() async throws {
+        let vm = PrayerTimeViewModel()
+        let keys = ["useCustomTimetable", "isUsingManualLocation", "manualLocationData",
+                    "showSunnahPrayers", "isNotificationsEnabled", "fajrCorrection", "dhuhrCorrection",
+                    "asrCorrection", "maghribCorrection", "ishaCorrection"]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        vm.isNotificationsEnabled = false
+        vm.showSunnahPrayers = false
+        vm.fajrCorrection = 0; vm.dhuhrCorrection = 0; vm.asrCorrection = 0
+        vm.maghribCorrection = 0; vm.ishaCorrection = 0
+        for (city, latitude, longitude) in [
+            ("New York", 40.7128, -74.0060), ("London", 51.5074, -0.1278),
+            ("Jakarta", -6.2088, 106.8456), ("Tokyo", 35.6762, 139.6503)
+        ] {
+            vm.setManualLocation(city: city, coordinates: .init(latitude: latitude, longitude: longitude))
+            await settleSchedule()
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = vm.displayTimeZone
+            // Both sides of US DST transitions, plus a separate season.
+            for (month, day) in [(3, 7), (3, 8), (6, 21), (10, 31), (11, 1)] {
+                let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: 12)))
+                var params = vm.method.params
+                params.madhab = vm.useHanafiMadhhab ? .hanafi : .shafi
+                params.highLatitudeRule = vm.highLatitudeRuleSetting.adhanRule
+                let expected = try XCTUnwrap(PrayerTimes(
+                    coordinates: Coordinates(latitude: latitude, longitude: longitude),
+                    date: calendar.dateComponents([.year, .month, .day], from: date),
+                    calculationParameters: params))
+                vm.updatePrayerTimes(on: date)
+                await settleSchedule()
+                XCTAssertEqual(vm.sunriseTime, expected.sunrise, city)
+                XCTAssertEqual(vm.todayTimes, ["Fajr": expected.fajr, "Dhuhr": expected.dhuhr,
+                                               "Asr": expected.asr, "Maghrib": expected.maghrib, "Isha": expected.isha])
+                XCTAssertEqual(vm.timetableDisplayOrder, ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"])
+                XCTAssertNotEqual(vm.nextPrayerName, "Sunrise")
+                XCTAssertNil(vm.todayTimes["Sunrise"])
+            }
+        }
+    }
+
+    @MainActor
+    func testScheduleRefreshesAtSelectedLocationMidnight() async throws {
+        let vm = PrayerTimeViewModel()
+        let keys = ["useCustomTimetable", "isUsingManualLocation", "manualLocationData", "isNotificationsEnabled"]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        vm.isNotificationsEnabled = false
+        vm.setManualLocation(city: "Tokyo", coordinates: .init(latitude: 35.6762, longitude: 139.6503))
+        await settleSchedule()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = vm.displayTimeZone
+        let before = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 23, minute: 59)))
+        vm.updatePrayerTimes(on: before)
+        await settleSchedule()
+        XCTAssertFalse(vm.needsPrayerScheduleRefresh(at: before))
+        XCTAssertTrue(vm.needsPrayerScheduleRefresh(at: before.addingTimeInterval(120)))
+    }
+
+    @MainActor
+    func testImportedSunriseUsesPublishedValueAndOmitsInvalidValue() async throws {
+        let vm = PrayerTimeViewModel()
+        let keys = ["useCustomTimetable", "activeTimetableId", "showSunnahPrayers", "isNotificationsEnabled", "use24HourFormat"]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        vm.isNotificationsEnabled = false
+        vm.showSunnahPrayers = true
+        let now = Date()
+        let components = Calendar.current.dateComponents([.month, .day], from: now)
+        var rows = Array(repeating: [String: [String]](), count: 12)
+        rows[components.month! - 1][String(components.day!)] = ["05:00", "06:42", "12:00", "15:00", "18:00", "20:00"]
+        let timetable = CustomTimetable(name: "Sunrise test", calendar: rows)
+        vm.activeTimetableId = timetable.id
+        vm.customTimetable = timetable
+        vm.useCustomTimetable = true
+        vm.updatePrayerTimes()
+        await settleSchedule()
+        let sunrise = try XCTUnwrap(vm.sunriseTime)
+        XCTAssertEqual(Calendar.current.component(.hour, from: sunrise), 6)
+        XCTAssertEqual(Calendar.current.component(.minute, from: sunrise), 42)
+        XCTAssertEqual(vm.timetableDisplayOrder, ["Tahajud", "Fajr", "Sunrise", "Dhuha", "Dhuhr", "Asr", "Maghrib", "Isha"])
+        XCTAssertNil(vm.todayTimes["Sunrise"])
+        XCTAssertNotEqual(vm.nextPrayerName, "Sunrise")
+        vm.use24HourFormat = true
+        let formatter = vm.dateFormatter
+        XCTAssertEqual(formatter.dateFormat, "HH:mm")
+        let localizedDigits = NumberFormatter()
+        localizedDigits.locale = formatter.locale
+        localizedDigits.minimumIntegerDigits = 2
+        let hour = try XCTUnwrap(localizedDigits.string(from: 6))
+        let minute = try XCTUnwrap(localizedDigits.string(from: 42))
+        XCTAssertEqual(formatter.string(from: sunrise), "\(hour):\(minute)")
+        vm.use24HourFormat = false
+        XCTAssertEqual(vm.dateFormatter.timeStyle, .short)
+        XCTAssertFalse(vm.dateFormatter.string(from: sunrise).isEmpty)
+
+        // A legacy/damaged row must never normalize an invalid clock or fall
+        // back to coordinate-derived Sunrise while mosque mode is active.
+        rows[components.month! - 1][String(components.day!)]?[1] = "25:99"
+        var invalid = timetable
+        invalid.calendar = rows
+        vm.customTimetable = invalid
+        vm.updatePrayerTimes()
+        await settleSchedule()
+        XCTAssertNil(vm.sunriseTime)
+        XCTAssertFalse(vm.timetableDisplayOrder.contains("Sunrise"))
+        XCTAssertNil(vm.todayTimes["Dhuha"])
+        XCTAssertEqual(vm.todayTimes.count, 6) // Five prayers plus Tahajud.
+    }
+
+    @MainActor
+    func testUncoveredCustomDayNeverInventsSunrise() async {
+        let vm = PrayerTimeViewModel()
+        let keys = ["useCustomTimetable", "activeTimetableId", "isUsingManualLocation", "manualLocationData", "showSunnahPrayers", "isNotificationsEnabled"]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        vm.isNotificationsEnabled = false
+        vm.showSunnahPrayers = false
+        vm.setManualLocation(city: "New York", coordinates: .init(latitude: 40.7128, longitude: -74.0060))
+        await settleSchedule()
+        XCTAssertNotNil(vm.sunriseTime)
+        let missing = CustomTimetable(name: "Uncovered", calendar: Array(repeating: [:], count: 12))
+        vm.activeTimetableId = missing.id
+        vm.customTimetable = missing
+        vm.useCustomTimetable = true
+        await settleSchedule()
+        XCTAssertNil(vm.sunriseTime)
+        XCTAssertFalse(vm.timetableDisplayOrder.contains("Sunrise"))
+        XCTAssertEqual(Set(vm.todayTimes.keys), Set(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]))
+    }
+
+    @MainActor
+    func testCustomTimetableNextDayUsesCalendarAcrossDST() async throws {
+        let vm = PrayerTimeViewModel()
+        let keys = ["useCustomTimetable", "activeTimetableId", "showSunnahPrayers", "isNotificationsEnabled"]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        vm.isNotificationsEnabled = false
+        vm.showSunnahPrayers = false
+        // Run under the Mac's timezone, the documented zone of custom files.
+        // On DST-observing Macs these boundary hours caught the old +/-86400 bug.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        for (month, day, hour) in [(3, 8, 0), (11, 1, 23)] {
+            let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: 30)))
+            let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: date))
+            let next = calendar.dateComponents([.month, .day], from: tomorrow)
+            var rows = Array(repeating: [String: [String]](), count: 12)
+            rows[month - 1][String(day)] = ["05:00", "06:42", "12:00", "15:00", "18:00", "20:00"]
+            rows[next.month! - 1][String(next.day!)] = ["05:17", "06:43", "12:00", "15:00", "18:00", "20:00"]
+            let timetable = CustomTimetable(name: "DST test", calendar: rows)
+            vm.activeTimetableId = timetable.id
+            vm.customTimetable = timetable
+            vm.useCustomTimetable = true
+            vm.updatePrayerTimes(on: date)
+            await settleSchedule()
+            let fajr = try XCTUnwrap(vm.displayedFajrTime)
+            XCTAssertTrue(calendar.isDate(fajr, inSameDayAs: tomorrow))
+            XCTAssertEqual(calendar.component(.minute, from: fajr), 17)
+        }
+    }
+
+    @MainActor
+    func testSunriseCannotScheduleNotificationOrAdhan() {
+        let vm = PrayerTimeViewModel()
+        XCTAssertNil(vm.adhanSound(for: "Sunrise"))
+        let now = Date()
+        let future = now.addingTimeInterval(3600)
+        XCTAssertEqual(NotificationManager.pendingPrayerTimes(
+            for: ["Sunrise": future, "Dhuhr": future],
+            prayerOrder: ["Sunrise", "Dhuhr"], now: now), ["Dhuhr": future])
+    }
+
+    func testCSVWithoutSunriseIsRejectedRatherThanEstimated() {
+        XCTAssertThrowsError(try CustomTimetableStore.parseAdhanCSV(
+            "Month,Day,Fajr,Dhuhr,Asr,Maghrib,Isha\n1,1,05:00,12:00,15:00,18:00,20:00"))
+    }
+
+    func testSunriseTranslationExistsInEverySupportedLanguage() throws {
+        for language in ["en", "ar", "id", "es", "fr", "de", "ja", "zh-Hans", "ko"] {
+            let path = try XCTUnwrap(Bundle.main.path(forResource: language, ofType: "lproj"))
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            XCTAssertFalse(bundle.localizedString(forKey: "Sunrise", value: "__MISSING__", table: nil) == "__MISSING__")
         }
     }
 
